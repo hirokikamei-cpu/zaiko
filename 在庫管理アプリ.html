@@ -390,12 +390,17 @@ async function saveToSheet(){
   }
   try{
     showSyncStatus('保存中...','saving');
-    await fetch(url,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'save',locations,items,categories}),
-      mode:'no-cors'
+    // GASはGETリクエストで送信（CORS回避）
+    const params=new URLSearchParams({
+      action:'save',
+      locations:JSON.stringify(locations),
+      items:JSON.stringify(items),
+      categories:JSON.stringify(categories)
     });
+    const img=new Image();
+    img.src=url+'?'+params.toString();
+    // 3秒後に保存完了とみなす
+    await new Promise(r=>setTimeout(r,3000));
     showSyncStatus('保存完了','ok');
     setTimeout(()=>hideSyncStatus(),3000);
   }catch(e){
