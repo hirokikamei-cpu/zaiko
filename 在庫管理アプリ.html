@@ -164,6 +164,10 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-text{font-size:14px;color:#888}
 .hidden{display:none}
+.save-inline-status{margin:0 16px 12px;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;text-align:center}
+.save-inline-status.ok{color:#27500A;background:#EAF3DE;border:1px solid #7CB97E}
+.save-inline-status.err{color:#854F0B;background:#FAEEDA;border:1px solid #EF9F27}
+.save-inline-status.saving{color:#888;background:#f5f5f5;border:1px solid #ddd}
 </style>
 </head>
 <body>
@@ -260,6 +264,7 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
       <div id="loc-settings-list"></div>
       <div class="setting-row"><button class="btn-setting" onclick="openAddLoc()"><i class="ti ti-plus"></i>拠点を追加</button></div>
       <div class="setting-row"><button class="btn-setting success" onclick="saveSetting('loc')"><i class="ti ti-device-floppy"></i>保存</button></div>
+      <div id="save-status-loc" class="save-inline-status hidden"></div>
     </div>
 
     <div class="setting-section">
@@ -267,6 +272,7 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
       <div id="cat-settings-list"></div>
       <div class="setting-row"><button class="btn-setting" onclick="openAddCat()"><i class="ti ti-plus"></i>カテゴリを追加</button></div>
       <div class="setting-row"><button class="btn-setting success" onclick="saveSetting('cat')"><i class="ti ti-device-floppy"></i>保存</button></div>
+      <div id="save-status-cat" class="save-inline-status hidden"></div>
     </div>
 
     <div class="setting-section">
@@ -279,6 +285,7 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
         <button class="btn-setting" style="margin-top:8px" onclick="openAdd('settings')"><i class="ti ti-plus"></i>商品を追加</button>
       </div>
       <div class="setting-row"><button class="btn-setting success" onclick="saveSetting('items')"><i class="ti ti-device-floppy"></i>保存</button></div>
+      <div id="save-status-items" class="save-inline-status hidden"></div>
     </div>
   </div>
 </div>
@@ -402,7 +409,26 @@ async function saveSetting(type){
   if(type==='cat')renderCatSettings();
   if(type==='items')renderSettingsItems();
   renderStock();
-  await saveToSheet();
+  // ボタン近くに保存中表示
+  const statusEl=document.getElementById('save-status-'+type);
+  if(statusEl){statusEl.textContent='保存中...';statusEl.className='save-inline-status saving';statusEl.classList.remove('hidden');}
+  const url=gasUrl();
+  if(!url){
+    saveLocalData();
+    if(statusEl){statusEl.textContent='ローカルに保存しました';statusEl.className='save-inline-status ok';setTimeout(()=>statusEl.classList.add('hidden'),3000);}
+    return;
+  }
+  try{
+    await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'save',locations,items,categories}),
+      mode:'no-cors'
+    });
+    if(statusEl){statusEl.textContent='✓ 保存完了';statusEl.className='save-inline-status ok';setTimeout(()=>statusEl.classList.add('hidden'),3000);}
+  }catch(e){
+    if(statusEl){statusEl.textContent='保存失敗（ローカルには保存済み）';statusEl.className='save-inline-status err';setTimeout(()=>statusEl.classList.add('hidden'),4000);}
+  }
 }
 
 function showSyncStatus(msg,type){
