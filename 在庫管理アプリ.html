@@ -30,12 +30,19 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
 .loc-chip.active .dot{background:#fff!important}
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
 .section-header h1{font-size:17px;font-weight:600;color:#1a1a1a;display:flex;align-items:center;gap:7px}
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:1rem}
-.stat{background:#fff;border-radius:10px;padding:.75rem;border:1px solid #eee}
-.stat-label{font-size:11px;color:#888;margin-bottom:2px}
-.stat-value{font-size:22px;font-weight:600;color:#1a1a1a}
-.stat-value.warn{color:#854F0B}
-.alert-bar{background:#FAEEDA;border:1px solid #EF9F27;border-radius:10px;padding:10px 12px;margin-bottom:.75rem;font-size:13px;color:#633806;display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+
+/* ===== 低在庫パネル（改善版） ===== */
+.low-stock-panel{background:#fff;border:1.5px solid #EF9F27;border-radius:14px;padding:0;margin-bottom:1rem;overflow:hidden}
+.low-stock-header{background:#FFF8EE;padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #F5D9A0}
+.low-stock-header-text{font-size:13px;font-weight:700;color:#633806}
+.low-stock-count{background:#EF9F27;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:auto}
+.low-stock-item{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid #FBF0D8;gap:10px}
+.low-stock-item:last-child{border-bottom:none}
+.low-stock-name{flex:1;font-size:14px;font-weight:600;color:#1a1a1a}
+.low-stock-cat{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;flex-shrink:0}
+.low-stock-qty{font-size:15px;font-weight:700;color:#854F0B;flex-shrink:0}
+.low-stock-thresh{font-size:11px;color:#aaa;flex-shrink:0}
+
 .cat-filter-scroll{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:.75rem;scrollbar-width:none}
 .cat-filter-scroll::-webkit-scrollbar{display:none}
 .cat-chip{flex-shrink:0;padding:8px 14px;border-radius:16px;border:1px solid #ddd;background:#fff;cursor:pointer;font-size:13px;color:#666;min-height:36px;display:flex;align-items:center}
@@ -180,13 +187,13 @@ body{background:#f5f5f5;color:#1a1a1a;padding:0 0 40px}
 
   <div id="sync-status" class="sync-bar hidden"></div>
 
-  <!-- 在庫ページ（閲覧のみ） -->
+  <!-- 在庫ページ -->
   <div class="page active" id="page-stock">
     <div class="loc-scroll" id="loc-scroll-stock"></div>
     <div class="section-header">
       <h1><i class="ti ti-building-store" style="font-size:17px"></i><span id="loc-name-stock"></span></h1>
     </div>
-    <div class="stats" id="stats"></div>
+    <!-- 低在庫パネル -->
     <div id="alert-area"></div>
     <div class="cat-filter-scroll" id="cat-filter"></div>
     <div id="item-list"></div>
@@ -319,18 +326,33 @@ function loadLocalSettings(){
   if(url)document.getElementById('gas-url').value=url;
   const ns=localStorage.getItem('notifSettings');
   if(ns)try{notifSettings=JSON.parse(ns);}catch(e){}
+  // ローカルに保存されたデータを読み込む
+  const saved=localStorage.getItem('appData');
+  if(saved)try{
+    const d=JSON.parse(saved);
+    if(d.categories&&d.categories.length>0)categories=d.categories;
+    if(d.locations&&d.locations.length>0)locations=d.locations;
+    if(d.items&&d.items.length>0){
+      items=d.items;
+      nextItemId=Math.max(...items.map(i=>i.id))+1;
+    }
+  }catch(e){}
   updateToggles();
 }
-function saveLocalSettings(){
+
+function saveLocalData(){
+  localStorage.setItem('appData',JSON.stringify({categories,locations,items}));
   localStorage.setItem('gasUrl',gasUrl());
   localStorage.setItem('notifSettings',JSON.stringify(notifSettings));
 }
+
 function updateToggles(){
   ['low','xfer'].forEach(t=>{const el=document.getElementById('toggle-'+t);if(el){el.classList.toggle('on',notifSettings[t]);el.classList.toggle('off',!notifSettings[t]);}});
 }
 
 async function loadFromSheet(){
   const url=gasUrl();
+  if(!url){showLoading(false);return;}
   showLoading(true);
   try{
     const res=await fetch(url+'?action=load');
@@ -344,28 +366,50 @@ async function loadFromSheet(){
         nextItemId=Math.max(...items.map(i=>i.id))+1;
       }
       curLoc=locations[0].id;curCheckLoc=locations[0].id;curSettingsLoc=locations[0].id;
+      saveLocalData();
       showSyncStatus('読み込み完了','ok');renderAll();
     }else{await saveToSheet();}
-  }catch(e){showSyncStatus('読み込み失敗','err');}
+  }catch(e){showSyncStatus('同期失敗（ローカルデータで動作中）','err');}
   showLoading(false);
 }
 
 async function saveToSheet(){
-  const url=gasUrl();if(!url)return;
+  const url=gasUrl();
+  // GAS URLがなくてもローカルに保存して成功扱い
+  saveLocalData();
+  if(!url){
+    showSyncStatus('ローカルに保存しました','ok');
+    setTimeout(()=>hideSyncStatus(),3000);
+    return;
+  }
   try{
     showSyncStatus('保存中...','saving');
     const params=new URLSearchParams({action:'save',locations:JSON.stringify(locations),items:JSON.stringify(items),categories:JSON.stringify(categories)});
     await fetch(url+'?'+params.toString());
     showSyncStatus('保存完了','ok');
     setTimeout(()=>hideSyncStatus(),3000);
-  }catch(e){showSyncStatus('保存失敗','err');}
+  }catch(e){
+    showSyncStatus('クラウド保存失敗（ローカルに保存済み）','err');
+  }
 }
 
 async function saveSetting(type){
-  await saveToSheet();
+  // ローカル保存を先に行い、UIを即時更新
+  saveLocalData();
+  showSyncStatus('ローカルに保存しました','ok');
+  setTimeout(()=>hideSyncStatus(),2000);
   if(type==='loc')renderSettingsLocs();
   if(type==='cat')renderCatSettings();
   if(type==='items')renderSettingsItems();
+  renderStock();
+  // GAS URLがあればクラウドにも保存
+  const url=gasUrl();
+  if(url){
+    try{
+      const params=new URLSearchParams({action:'save',locations:JSON.stringify(locations),items:JSON.stringify(items),categories:JSON.stringify(categories)});
+      await fetch(url+'?'+params.toString());
+    }catch(e){}
+  }
 }
 
 function showSyncStatus(msg,type){
@@ -381,7 +425,7 @@ async function sendToChat(text){
   const url=gasUrl();if(!url)return false;
   try{const res=await fetch(url+'?text='+encodeURIComponent(text));return res.ok;}catch(e){return false;}
 }
-function toggleNotif(type){notifSettings[type]=!notifSettings[type];updateToggles();saveLocalSettings();}
+function toggleNotif(type){notifSettings[type]=!notifSettings[type];updateToggles();saveLocalData();}
 async function sendTest(){
   showNotifStatus('送信中...','sending');
   const ok=await sendToChat('[在庫管理] テスト通知です。');
@@ -536,6 +580,7 @@ function renderLocChips(containerId,cur,fn){
 function switchLocStock(id){curLoc=id;curCatFilter='all';renderStock();}
 function switchLocMove(id){curLoc=id;renderMove();}
 function switchLocSettings(id){curSettingsLoc=id;renderSettingsItems();}
+
 function renderCatFilter(){
   const el=document.getElementById('cat-filter');
   const its=locItems(curLoc);
@@ -544,15 +589,36 @@ function renderCatFilter(){
     +usedCats.map(c=>{const a=curCatFilter===c.id;return `<button class="cat-chip" style="background:${a?c.color:'#fff'};color:${a?textColor(c.color):'#666'};border-color:${a?c.color:'#ddd'}" onclick="setCatFilter('${c.id}')">${c.name}</button>`;}).join('');
 }
 function setCatFilter(id){curCatFilter=id;renderStock();}
+
 function renderStock(){
   renderLocChips('loc-scroll-stock',curLoc,'switchLocStock');
   document.getElementById('loc-name-stock').textContent=locations.find(l=>l.id===curLoc)?.name||'';
   const its=locItems(curLoc);
   const low=its.filter(i=>i.qty<=i.thresh);
-  const total=its.reduce((s,i)=>s+i.qty,0);
-  const cats=new Set(its.map(i=>i.catId));
-  document.getElementById('stats').innerHTML=`<div class="stat"><div class="stat-label">商品数</div><div class="stat-value">${its.length}</div></div><div class="stat"><div class="stat-label">総在庫数</div><div class="stat-value">${total}</div></div><div class="stat"><div class="stat-label">カテゴリ数</div><div class="stat-value">${cats.size}</div></div><div class="stat"><div class="stat-label">低在庫</div><div class="stat-value${low.length>0?' warn':''}">${low.length}</div></div>`;
-  document.getElementById('alert-area').innerHTML=low.length>0?`<div class="alert-bar"><i class="ti ti-alert-triangle" style="font-size:16px;flex-shrink:0;margin-top:1px"></i><span>低在庫：${low.map(i=>i.name).join('、')}</span></div>`:'';
+
+  // 低在庫パネル（改善版）
+  const alertArea=document.getElementById('alert-area');
+  if(low.length>0){
+    alertArea.innerHTML=`<div class="low-stock-panel">
+      <div class="low-stock-header">
+        <i class="ti ti-alert-triangle" style="font-size:16px;color:#854F0B"></i>
+        <span class="low-stock-header-text">低在庫アラート</span>
+        <span class="low-stock-count">${low.length}件</span>
+      </div>
+      ${low.map(i=>{
+        const cat=getCat(i.catId);
+        return `<div class="low-stock-item">
+          <span class="low-stock-name">${i.name}</span>
+          <span class="low-stock-cat" style="background:${cat.color};color:${textColor(cat.color)}">${cat.name}</span>
+          <span class="low-stock-qty">${parseFloat(i.qty).toFixed(1)}${i.unit}</span>
+          <span class="low-stock-thresh">/ 閾値${i.thresh}${i.unit}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }else{
+    alertArea.innerHTML='';
+  }
+
   renderCatFilter();
   const filtered=curCatFilter==='all'?its:its.filter(i=>i.catId===curCatFilter);
   const il=document.getElementById('item-list');
@@ -562,6 +628,7 @@ function renderStock(){
     il.innerHTML=Object.entries(groups).map(([catId,gits])=>{const cat=getCat(catId);return `<div class="cat-group"><div class="cat-group-header"><span class="cat-group-dot" style="background:${cat.color}"></span>${cat.name}</div>${gits.map(i=>itemCardHTML(i)).join('')}</div>`;}).join('');
   }else{il.innerHTML=filtered.map(i=>itemCardHTML(i)).join('');}
 }
+
 function itemCardHTML(i){
   const isLow=i.qty<=i.thresh;const cat=getCat(i.catId);
   return `<div class="item-card${isLow?' low-card':''}" style="margin-bottom:8px">
@@ -639,7 +706,9 @@ function moveCat(idx,dir){
 function deleteCat(id){
   if(items.some(i=>i.catId===id)){alert('このカテゴリは商品に使用されています。先に商品のカテゴリを変更してください。');return;}
   if(!confirm('削除しますか？'))return;
-  categories=categories.filter(c=>c.id!==id);renderCatSettings();renderStock();
+  categories=categories.filter(c=>c.id!==id);
+  saveLocalData();
+  renderCatSettings();renderStock();
 }
 function renderSettingsItems(){
   renderLocChips('loc-scroll-settings',curSettingsLoc,'switchLocSettings');
@@ -658,7 +727,7 @@ function renderSettingsItems(){
     </div>`).join('');
 }
 function updateItemField(itemId,field,value){const item=items.find(i=>i.id===itemId);if(item){item[field]=value;renderStock();}}
-function deleteItemFromSettings(id){if(confirm('削除しますか？')){items=items.filter(i=>i.id!==id);renderSettingsItems();renderStock();}}
+function deleteItemFromSettings(id){if(confirm('削除しますか？')){items=items.filter(i=>i.id!==id);saveLocalData();renderSettingsItems();renderStock();}}
 function deleteLoc(id){
   if(locations.length<=1){alert('拠点は最低1つ必要です');return;}
   const l=locations.find(x=>x.id===id);const cnt=items.filter(i=>i.locId===id).length;
@@ -667,13 +736,13 @@ function deleteLoc(id){
   if(curLoc===id)curLoc=locations[0].id;
   if(curCheckLoc===id)curCheckLoc=locations[0].id;
   if(curSettingsLoc===id)curSettingsLoc=locations[0].id;
+  saveLocalData();
   renderSettingsPage();renderStock();renderMove();
 }
 
 function colorPickerHTML(sc){return `<div class="color-picker-row">${PRESET_COLORS.map(c=>`<div class="color-opt${c===sc?' selected':''}" style="background:${c}" onclick="selectColor('${c}')"></div>`).join('')}</div>`;}
 function selectColor(c){tempColor=c;document.querySelectorAll('.color-opt').forEach(el=>{try{const bg=el.style.backgroundColor;const hex='#'+[...Array(3)].map((_,i)=>parseInt(bg.match(/\d+/g)[i]).toString(16).padStart(2,'0')).join('');el.classList.toggle('selected',hex===c);}catch(e){}});}
 
-/* 商品追加モーダル（在庫数なし） */
 function openAdd(from){
   const targetLoc=from==='check'?curCheckLoc:curSettingsLoc;
   document.getElementById('modal-inner').innerHTML=`<h2>商品を追加</h2>
@@ -709,10 +778,10 @@ function openEditCat(id){
 function closeModal(){document.getElementById('modal-overlay').classList.remove('show');}
 function overlayClick(e){if(e.target===document.getElementById('modal-overlay'))closeModal();}
 
-/* 在庫数は0で初期設定（棚卸しで入力） */
 function saveItem(targetLoc,from){
   const name=(document.getElementById('m-name').value||'').trim();if(!name){alert('商品名を入力してください');return;}
   items.push({id:nextItemId++,locId:targetLoc,name,catId:document.getElementById('m-cat').value,qty:0,unit:document.getElementById('m-unit').value||'個',thresh:Math.max(0,Math.round(parseFloat(document.getElementById('m-thresh').value)*10)/10||0)});
+  saveLocalData();
   closeModal();
   if(from==='check'){initCheckData();renderCheck();}
   if(from==='settings')renderSettingsItems();
@@ -721,23 +790,28 @@ function saveItem(targetLoc,from){
 function saveLoc(){
   const name=(document.getElementById('m-locname').value||'').trim();if(!name){alert('拠点名を入力してください');return;}
   const id=String.fromCharCode(nextLocCode++);locations.push({id,name});
+  saveLocalData();
   closeModal();renderSettingsPage();renderStock();renderMove();
 }
 function saveCat(){
   const name=(document.getElementById('m-catname').value||'').trim();if(!name){alert('カテゴリ名を入力してください');return;}
   categories.push({id:'c'+(nextCatId++),name,color:tempColor});
+  saveLocalData();
   closeModal();renderCatSettings();renderStock();
 }
 function updateCat(id){
   const name=(document.getElementById('m-catname').value||'').trim();if(!name){alert('カテゴリ名を入力してください');return;}
   const c=categories.find(x=>x.id===id);if(c){c.name=name;c.color=tempColor;}
+  saveLocalData();
   closeModal();renderCatSettings();renderStock();if(curTab==='settings')renderSettingsItems();
 }
 
 loadLocalSettings();
 renderStock();
 showLoading(false);
-loadFromSheet();
+// GAS URLがある場合のみクラウドから読み込む
+const savedUrl=localStorage.getItem('gasUrl');
+if(savedUrl){loadFromSheet();}
 </script>
 </body>
 </html>
