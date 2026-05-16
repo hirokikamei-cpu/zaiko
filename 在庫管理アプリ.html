@@ -375,7 +375,6 @@ async function loadFromSheet(){
 
 async function saveToSheet(){
   const url=gasUrl();
-  // GAS URLがなくてもローカルに保存して成功扱い
   saveLocalData();
   if(!url){
     showSyncStatus('ローカルに保存しました','ok');
@@ -384,8 +383,12 @@ async function saveToSheet(){
   }
   try{
     showSyncStatus('保存中...','saving');
-    const params=new URLSearchParams({action:'save',locations:JSON.stringify(locations),items:JSON.stringify(items),categories:JSON.stringify(categories)});
-    await fetch(url+'?'+params.toString());
+    await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'save',locations,items,categories}),
+      mode:'no-cors'
+    });
     showSyncStatus('保存完了','ok');
     setTimeout(()=>hideSyncStatus(),3000);
   }catch(e){
@@ -394,22 +397,12 @@ async function saveToSheet(){
 }
 
 async function saveSetting(type){
-  // ローカル保存を先に行い、UIを即時更新
   saveLocalData();
-  showSyncStatus('ローカルに保存しました','ok');
-  setTimeout(()=>hideSyncStatus(),2000);
   if(type==='loc')renderSettingsLocs();
   if(type==='cat')renderCatSettings();
   if(type==='items')renderSettingsItems();
   renderStock();
-  // GAS URLがあればクラウドにも保存
-  const url=gasUrl();
-  if(url){
-    try{
-      const params=new URLSearchParams({action:'save',locations:JSON.stringify(locations),items:JSON.stringify(items),categories:JSON.stringify(categories)});
-      await fetch(url+'?'+params.toString());
-    }catch(e){}
-  }
+  await saveToSheet();
 }
 
 function showSyncStatus(msg,type){
